@@ -1,0 +1,45 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/django/Dockerfile
+    command: /start.sh
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - waha
+      # - db  # Uncomment when using Postgres
+
+  waha:
+    image: devlikeapro/waha
+    # restart: always
+    environment:
+      - WHATSAPP_DEFAULT_ENGINE=WEBJS
+      - WHATSAPP_SWAGGER_USERNAME=admin
+      - WHATSAPP_SWAGGER_PASSWORD=admin
+      - WHATSAPP_HOOK_URL=http://backend:8000/webhook/
+      - WHATSAPP_HOOK_EVENTS=message.any
+      - WAHA_API_KEY=${WAHA_API_KEY}
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+    volumes:
+      # PERSISTENCIA DE SESSAO: Mapeia a pasta local waha-sessions para persistir a autenticação
+      - ./waha-sessions:/app/.sessions
+
+  # db:
+  #   image: postgres:13-alpine
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data/
+  #   environment:
+  #     - POSTGRES_USER=hello_django
+  #     - POSTGRES_PASSWORD=hello_django
+  #     - POSTGRES_DB=hello_django_dev
+
+# volumes:
+#   postgres_data:
