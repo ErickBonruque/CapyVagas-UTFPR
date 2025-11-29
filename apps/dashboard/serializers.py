@@ -3,7 +3,7 @@ Serializers para a API REST do dashboard.
 """
 from rest_framework import serializers
 from apps.courses.models import Course, SearchTerm
-from apps.bot.models import InteractionLog, BotHealthCheck, BotMetrics
+from apps.bot.models import InteractionLog, BotHealthCheck, BotMetrics, BotConfiguration
 from apps.users.models import UserProfile
 
 
@@ -91,3 +91,21 @@ class BotStatusSerializer(serializers.Serializer):
     avg_response_time = serializers.FloatField(required=False)
     total_checks = serializers.IntegerField(required=False)
     error_count = serializers.IntegerField(required=False)
+
+
+class BotConfigurationSerializer(serializers.ModelSerializer):
+    """Serializer para configurar credenciais do bot/WAHA."""
+
+    class Meta:
+        model = BotConfiguration
+        fields = [
+            "id",
+            "waha_url",
+            "waha_api_key",
+            "waha_session",
+            "dashboard_username",
+            "dashboard_password",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["created_at", "updated_at"]

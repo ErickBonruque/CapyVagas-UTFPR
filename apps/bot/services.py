@@ -3,7 +3,8 @@ from apps.users.models import UserProfile
 from apps.users.services import UTFPRAuthService
 from apps.courses.models import Course, SearchTerm
 from infra.jobspy.service import JobSearchService
-from infra.waha.client import WahaClient # To be implemented
+from infra.waha.client import WahaClient
+from apps.bot.models import BotConfiguration
 
 logger = logging.getLogger(__name__)
 
@@ -12,10 +13,16 @@ class BotService:
     Controla o fluxo de conversação do bot.
     """
     
-    def __init__(self):
-        self.auth_service = UTFPRAuthService()
-        self.job_service = JobSearchService()
-        self.waha_client = WahaClient()
+    def __init__(
+        self,
+        auth_service: UTFPRAuthService | None = None,
+        job_service: JobSearchService | None = None,
+        waha_client: WahaClient | None = None,
+    ):
+        waha_settings = BotConfiguration.get_active()
+        self.auth_service = auth_service or UTFPRAuthService()
+        self.job_service = job_service or JobSearchService()
+        self.waha_client = waha_client or WahaClient(settings=waha_settings)
 
     def process_message(self, chat_id, message, from_me):
         """
@@ -77,8 +84,8 @@ class BotService:
             # Em produção, perguntaria qual curso
             courses = Course.objects.filter(is_active=True)
             if not courses.exists():
-                 self.waha_client.send_message(chat_id, "⚠️ Nenhum curso configurado no sistema.")
-                 return
+                self.waha_client.send_message(chat_id, "⚠️ Nenhum curso configurado no sistema.")
+                return
 
             for course in courses:
                 terms = list(course.search_terms.filter(is_default=True).values_list('term', flat=True))
