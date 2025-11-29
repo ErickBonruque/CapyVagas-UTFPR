@@ -1,5 +1,5 @@
 build:
-	docker-compose build
+docker-compose build
 
 up:
 	docker-compose up
@@ -17,6 +17,13 @@ shell:
 	docker-compose run --rm backend python manage.py shell
 
 deploy-docker:
-	git pull
-	make build
-	make up -d
+git pull
+make build
+make up -d
+
+lint:
+ruff check .
+black --check .
+
+test:
+python manage.py test

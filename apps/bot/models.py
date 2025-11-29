@@ -2,6 +2,7 @@ from django.db import models
 from django.db.models import Avg
 from apps.core.models import TimeStampedModel
 from apps.users.models import UserProfile
+from config.env import WahaSettings
 
 
 class BotHealthCheck(TimeStampedModel):
@@ -79,3 +80,33 @@ class InteractionLog(TimeStampedModel):
 
     def __str__(self):
         return f"[{self.message_type}] {self.user.phone_number}: {self.message_content[:50]}..."
+
+
+class BotConfiguration(TimeStampedModel):
+    """Configurações persistentes do bot controladas pelo dashboard."""
+
+    waha_url = models.URLField(default="http://localhost:3000")
+    waha_api_key = models.CharField(max_length=255, default="dev-api-key")
+    waha_session = models.CharField(max_length=100, default="dev-session")
+    dashboard_username = models.CharField(max_length=150, default="admin")
+    dashboard_password = models.CharField(max_length=150, default="password")
+
+    class Meta:
+        verbose_name = "Configuração do Bot"
+        verbose_name_plural = "Configurações do Bot"
+
+    def to_waha_settings(self) -> WahaSettings:
+        """Converte registro em objeto de configuração da integração WAHA."""
+
+        return WahaSettings(
+            base_url=self.waha_url,
+            api_key=self.waha_api_key,
+            session_name=self.waha_session,
+        )
+
+    @classmethod
+    def get_active(cls) -> WahaSettings:
+        """Retorna a configuração mais recente ou valores padrão."""
+
+        instance = cls.objects.order_by("-created_at").first()
+        return instance.to_waha_settings() if instance else WahaSettings()

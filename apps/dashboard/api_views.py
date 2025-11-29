@@ -11,11 +11,12 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 
 from apps.courses.models import Course, SearchTerm
-from apps.bot.models import InteractionLog, BotHealthCheck, BotMetrics
+from apps.bot.models import InteractionLog, BotHealthCheck, BotMetrics, BotConfiguration
 from apps.bot.health import BotHealthMonitor
 from apps.dashboard.serializers import (
     CourseSerializer, CourseListSerializer, SearchTermSerializer,
-    InteractionLogSerializer, BotHealthCheckSerializer, BotStatusSerializer
+    InteractionLogSerializer, BotHealthCheckSerializer, BotStatusSerializer,
+    BotConfigurationSerializer
 )
 
 
@@ -224,3 +225,15 @@ class BotStatusViewSet(viewsets.ViewSet):
             'last_24_hours': metrics_24h,
             'last_7_days': metrics_7d
         })
+
+
+class BotConfigurationViewSet(viewsets.ModelViewSet):
+    """Permite configurar credenciais do WAHA e login do dashboard."""
+
+    queryset = BotConfiguration.objects.all().order_by("-created_at")
+    serializer_class = BotConfigurationSerializer
+    permission_classes = [AllowAny]  # TODO: proteger com autenticação no futuro
+
+    def create(self, request, *args, **kwargs):
+        BotConfiguration.objects.all().delete()
+        return super().create(request, *args, **kwargs)
