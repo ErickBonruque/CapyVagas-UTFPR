@@ -1,5 +1,6 @@
 from django.db import models
 from apps.core.models import TimeStampedModel
+from apps.courses.models import Course, SearchTerm
 
 class UserProfile(TimeStampedModel):
     """
@@ -11,6 +12,26 @@ class UserProfile(TimeStampedModel):
     utfpr_password = models.CharField(max_length=255, blank=True, null=True, help_text="Senha do Portal (Cuidado: Armazenamento sensível)")
     is_authenticated_utfpr = models.BooleanField(default=False)
     last_activity = models.DateTimeField(auto_now=True)
+    current_action = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text="Estado atual do fluxo conversacional do bot",
+    )
+    selected_course = models.ForeignKey(
+        Course,
+        related_name="selected_by_users",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+    )
+    selected_term = models.ForeignKey(
+        SearchTerm,
+        related_name="selected_by_users",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+    )
 
     def __str__(self):
         return f"{self.phone_number} ({self.ra if self.ra else 'Sem RA'})"

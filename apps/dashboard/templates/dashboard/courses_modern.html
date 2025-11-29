@@ -3,7 +3,7 @@
 {% block page_title %}Gerenciar Cursos{% endblock %}
 
 {% block content %}
-<div class="space-y-6" x-data="coursesManager()">
+<div class="space-y-6" x-data="coursesManager()" x-cloak>
     <!-- Header com ações -->
     <div class="flex items-center justify-between">
         <div>
@@ -102,14 +102,97 @@
         </div>
         {% endfor %}
     </div>
+
+    <!-- Modal de criação de curso -->
+    <div
+        x-show="showCreateModal"
+        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+        x-transition
+    >
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6" @click.away="closeCreateModal()">
+            <div class="flex items-start justify-between">
+                <div>
+                    <h3 class="text-xl font-semibold text-gray-900">Novo curso</h3>
+                    <p class="text-sm text-gray-600">Cadastre um curso e defina seus termos de busca.</p>
+                </div>
+                <button class="text-gray-400 hover:text-gray-600" @click="closeCreateModal()">✕</button>
+            </div>
+
+            <div class="mt-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Nome</label>
+                    <input type="text" x-model="newCourse.name" class="w-full mt-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500" placeholder="Ex: Engenharia de Software" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Código (opcional)</label>
+                    <input type="text" x-model="newCourse.code" class="w-full mt-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500" placeholder="Ex: COENS" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Descrição</label>
+                    <textarea x-model="newCourse.description" class="w-full mt-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500" rows="3" placeholder="Resumo para identificar o curso e a busca."></textarea>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <input type="checkbox" id="is_active" x-model="newCourse.is_active" class="h-4 w-4 text-green-600 border-gray-300 rounded" checked />
+                    <label for="is_active" class="text-sm text-gray-700">Ativo</label>
+                </div>
+            </div>
+
+            <div class="mt-6 flex justify-end space-x-3">
+                <button class="px-4 py-2 rounded-lg border" @click="closeCreateModal()">Cancelar</button>
+                <button
+                    class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-60"
+                    :disabled="isSubmitting"
+                    @click="createCourse()"
+                >
+                    <span x-show="!isSubmitting">Salvar curso</span>
+                    <span x-show="isSubmitting">Salvando...</span>
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
 function coursesManager() {
     return {
+        showCreateModal: false,
+        isSubmitting: false,
+        newCourse: {
+            name: '',
+            code: '',
+            description: '',
+            is_active: true,
+        },
         openCreateModal() {
-            // TODO: Implementar modal de criação via HTMX ou redirecionar para admin
-            window.location.href = '/admin/courses/course/add/';
+            this.showCreateModal = true;
+        },
+        closeCreateModal() {
+            this.showCreateModal = false;
+            this.newCourse = { name: '', code: '', description: '', is_active: true };
+        },
+        async createCourse() {
+            if (!this.newCourse.name) {
+                showToast('Informe o nome do curso', 'error');
+                return;
+            }
+            this.isSubmitting = true;
+            try {
+                const response = await fetch('/api/courses/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.newCourse),
+                });
+                if (!response.ok) {
+                    showToast('Erro ao criar curso', 'error');
+                    return;
+                }
+                showToast('Curso criado com sucesso', 'success');
+                setTimeout(() => window.location.reload(), 800);
+            } catch (error) {
+                showToast('Erro ao criar curso', 'error');
+            } finally {
+                this.isSubmitting = false;
+            }
         },
         editCourse(id) {
             window.location.href = `/admin/courses/course/${id}/change/`;
