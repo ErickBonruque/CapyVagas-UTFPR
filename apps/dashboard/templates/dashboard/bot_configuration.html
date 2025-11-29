@@ -1,0 +1,130 @@
+{% extends 'dashboard/base_modern.html' %}
+
+{% block page_title %}Configuração WAHA{% endblock %}
+
+{% block content %}
+<div class="space-y-6" x-data="botConfigurationForm()">
+    <div class="bg-white rounded-lg shadow p-6">
+        <div class="flex items-start justify-between">
+            <div>
+                <h2 class="text-2xl font-bold text-gray-900">Credenciais do WhatsApp (WAHA)</h2>
+                <p class="text-gray-600 mt-1">Centralize aqui URL, chave API, sessão e login do dashboard utilizado pelo bot.</p>
+            </div>
+            <span class="px-3 py-1 text-xs font-semibold bg-green-100 text-green-700 rounded-full">Dashboard & Bot</span>
+        </div>
+
+        <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <label class="block text-sm font-medium text-gray-700">WAHA URL</label>
+                <input type="url" x-model="form.waha_url" class="mt-1 input-modern" placeholder="http://localhost:3000" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">WAHA API Key</label>
+                <input type="text" x-model="form.waha_api_key" class="mt-1 input-modern" placeholder="dev-api-key" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">WAHA Session</label>
+                <input type="text" x-model="form.waha_session" class="mt-1 input-modern" placeholder="default" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Usuário do Dashboard</label>
+                <input type="text" x-model="form.dashboard_username" class="mt-1 input-modern" placeholder="admin" />
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Senha do Dashboard</label>
+                <input type="password" x-model="form.dashboard_password" class="mt-1 input-modern" placeholder="password" />
+            </div>
+        </div>
+
+        <div class="mt-6 flex items-center space-x-3">
+            <button @click="save()" class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Salvar configuração</button>
+            <span class="text-sm text-gray-500">Apenas um registro fica ativo; salvar substitui a configuração anterior.</span>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow p-6">
+        <h3 class="text-lg font-semibold text-gray-900">Configuração atual</h3>
+        <p class="text-gray-600 mt-1">Últimos valores aplicados ao bot.</p>
+
+        <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="p-4 bg-gray-50 rounded-lg">
+                <p class="text-xs uppercase text-gray-500">WAHA URL</p>
+                <p class="font-semibold text-gray-900" x-text="active.waha_url"></p>
+            </div>
+            <div class="p-4 bg-gray-50 rounded-lg">
+                <p class="text-xs uppercase text-gray-500">API Key</p>
+                <p class="font-semibold text-gray-900 break-all" x-text="active.waha_api_key"></p>
+            </div>
+            <div class="p-4 bg-gray-50 rounded-lg">
+                <p class="text-xs uppercase text-gray-500">Sessão</p>
+                <p class="font-semibold text-gray-900" x-text="active.waha_session"></p>
+            </div>
+            <div class="p-4 bg-gray-50 rounded-lg">
+                <p class="text-xs uppercase text-gray-500">Usuário Dashboard</p>
+                <p class="font-semibold text-gray-900" x-text="active.dashboard_username"></p>
+            </div>
+            <div class="p-4 bg-gray-50 rounded-lg">
+                <p class="text-xs uppercase text-gray-500">Atualizado em</p>
+                <p class="font-semibold text-gray-900" x-text="active.updated_at ? new Date(active.updated_at).toLocaleString() : 'Não configurado' "></p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function botConfigurationForm() {
+    return {
+        form: {
+            waha_url: '{{ active_config.waha_url|default:"http://localhost:3000" }}',
+            waha_api_key: '{{ active_config.waha_api_key|default:"dev-api-key" }}',
+            waha_session: '{{ active_config.waha_session|default:"dev-session" }}',
+            dashboard_username: '{{ active_config.dashboard_username|default:"admin" }}',
+            dashboard_password: '{{ active_config.dashboard_password|default:"password" }}',
+        },
+        active: {
+            waha_url: '{{ active_config.waha_url|default:"http://localhost:3000" }}',
+            waha_api_key: '{{ active_config.waha_api_key|default:"dev-api-key" }}',
+            waha_session: '{{ active_config.waha_session|default:"dev-session" }}',
+            dashboard_username: '{{ active_config.dashboard_username|default:"admin" }}',
+            updated_at: '{{ active_config.updated_at|default:"" }}',
+        },
+        async fetchActive() {
+            try {
+                const response = await fetch('/api/bot/configuration/active/');
+                if (!response.ok) return;
+                const data = await response.json();
+                this.active = data;
+                this.form = { ...this.form, ...data };
+            } catch (error) {
+                console.error('Erro ao carregar configuração', error);
+            }
+        },
+        async save() {
+            try {
+                const response = await fetch('/api/bot/configuration/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.form),
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    showToast('Erro ao salvar configuração: ' + (err.detail || 'verifique os campos'), 'error');
+                    return;
+                }
+
+                const data = await response.json();
+                this.active = data;
+                showToast('Configuração atualizada com sucesso', 'success');
+            } catch (error) {
+                console.error(error);
+                showToast('Erro ao salvar configuração', 'error');
+            }
+        },
+        init() {
+            this.fetchActive();
+        }
+    }
+}
+</script>
+{% endblock %}
