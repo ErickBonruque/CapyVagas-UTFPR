@@ -1,9 +1,10 @@
 import logging
 from apps.users.models import UserProfile
 from apps.users.services import UTFPRAuthService
-from apps.courses.models import Course, SearchTerm
+from apps.courses.models import Course
 from infra.jobspy.service import JobSearchService
-from infra.waha.client import WahaClient # To be implemented
+from infra.waha.client import WahaClient
+from apps.bot.models import BotConfiguration, InteractionLog
 
 logger = logging.getLogger(__name__)
 
@@ -12,10 +13,16 @@ class BotService:
     Controla o fluxo de conversação do bot.
     """
     
-    def __init__(self):
-        self.auth_service = UTFPRAuthService()
-        self.job_service = JobSearchService()
-        self.waha_client = WahaClient()
+    def __init__(
+        self,
+        auth_service: UTFPRAuthService | None = None,
+        job_service: JobSearchService | None = None,
+        waha_client: WahaClient | None = None,
+    ):
+        waha_settings = BotConfiguration.get_active()
+        self.auth_service = auth_service or UTFPRAuthService()
+        self.job_service = job_service or JobSearchService()
+        self.waha_client = waha_client or WahaClient(settings=waha_settings)
 
     def process_message(self, chat_id, message, from_me):
         """
@@ -33,8 +40,12 @@ class BotService:
         except UserProfile.DoesNotExist:
             user = UserProfile.objects.create(phone_number=chat_id)
 
-        # Log da interação (simplificado)
-        # InteractionLog.objects.create(user=user, message_content=message, message_type='RECEIVED')
+        InteractionLog.objects.create(
+            user=user,
+            message_content=message,
+            message_type="RECEIVED",
+            session_id=self.waha_client.settings.session_name,
+        )
 
         # Fluxo de Comandos
         if text == 'sair' or text == 'logout':
@@ -56,15 +67,22 @@ class BotService:
             ra, password = parts
             if self.auth_service.authenticate(ra, password):
                 self.auth_service.link_user(chat_id, ra, password)
-                self.waha_client.send_message(chat_id, "✅ Login realizado com sucesso! Digite 'vagas' para buscar oportunidades.")
+                success_message = "✅ Login realizado com sucesso! Digite 'vagas' para buscar oportunidades."
+                self.waha_client.send_message(chat_id, success_message)
+                self._log_sent(user, success_message)
             else:
-                self.waha_client.send_message(chat_id, "❌ Falha no login. Verifique RA e senha e tente novamente (Formato: RA SENHA).")
+                failure = "❌ Falha no login. Verifique RA e senha e tente novamente (Formato: RA SENHA)."
+                self.waha_client.send_message(chat_id, failure)
+                self._log_sent(user, failure)
         else:
-            self.waha_client.send_message(chat_id, "👋 Olá! Para acessar, envie seu RA e Senha separados por espaço (Ex: a1234567 senha123).")
+            prompt = "👋 Olá! Para acessar, envie seu RA e Senha separados por espaço (Ex: a1234567 senha123)."
+            self.waha_client.send_message(chat_id, prompt)
+            self._log_sent(user, prompt)
 
     def handle_logout(self, user, chat_id):
         self.auth_service.logout(chat_id)
         self.waha_client.send_message(chat_id, "🔒 Você saiu do sistema. Até logo!")
+        self._log_sent(user, "🔒 Você saiu do sistema. Até logo!")
 
     def handle_authenticated_flow(self, user, chat_id, text):
         """
@@ -77,8 +95,9 @@ class BotService:
             # Em produção, perguntaria qual curso
             courses = Course.objects.filter(is_active=True)
             if not courses.exists():
-                 self.waha_client.send_message(chat_id, "⚠️ Nenhum curso configurado no sistema.")
-                 return
+                self.waha_client.send_message(chat_id, "⚠️ Nenhum curso configurado no sistema.")
+                self._log_sent(user, "⚠️ Nenhum curso configurado no sistema.")
+                return
 
             for course in courses:
                 terms = list(course.search_terms.filter(is_default=True).values_list('term', flat=True))
@@ -89,8 +108,20 @@ class BotService:
                         for job in jobs:
                             response += f"🏢 *{job['company']}*\n💼 {job['title']}\n🔗 {job['url']}\n\n"
                         self.waha_client.send_message(chat_id, response)
+                        self._log_sent(user, response)
                     else:
                         self.waha_client.send_message(chat_id, f"😔 Nenhuma vaga encontrada para {course.name} no momento.")
-        
+                        self._log_sent(user, f"😔 Nenhuma vaga encontrada para {course.name} no momento.")
+
         else:
-            self.waha_client.send_message(chat_id, "🤖 Comandos disponíveis:\n- 'vagas': Buscar oportunidades\n- 'sair': Fazer logout")
+            response = "🤖 Comandos disponíveis:\n- 'vagas': Buscar oportunidades\n- 'sair': Fazer logout"
+            self.waha_client.send_message(chat_id, response)
+            self._log_sent(user, response)
+
+    def _log_sent(self, user: UserProfile, message: str) -> None:
+        InteractionLog.objects.create(
+            user=user,
+            message_content=message,
+            message_type="SENT",
+            session_id=self.waha_client.settings.session_name,
+        )

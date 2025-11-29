@@ -4,7 +4,7 @@ from django.utils import timezone
 from django.db.models import Q
 from datetime import timedelta
 from apps.courses.models import Course, SearchTerm
-from apps.bot.models import InteractionLog, BotHealthCheck
+from apps.bot.models import InteractionLog, BotHealthCheck, BotConfiguration
 from apps.bot.health import BotHealthMonitor
 
 
@@ -61,6 +61,21 @@ def bot_status(request):
     }
     
     return render(request, 'dashboard/bot_status.html', context)
+
+
+def bot_configuration(request):
+    """Página para gerenciar credenciais WAHA e login do dashboard."""
+
+    active_config = (
+        BotConfiguration.objects.order_by("-created_at").first()
+        or BotConfiguration.defaults()
+    )
+
+    context = {
+        "active_config": active_config,
+    }
+
+    return render(request, "dashboard/bot_configuration.html", context)
 
 
 def courses_list(request):
