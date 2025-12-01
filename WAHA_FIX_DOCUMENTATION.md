@@ -1,209 +1,293 @@
-# Correção do Problema de Autenticação do WAHA
+# Correção Definitiva do Problema de Autenticação do WAHA
 
 ## 📋 Resumo do Problema
 
-O WAHA não estava funcionando corretamente devido a **inconsistências na configuração de autenticação** no arquivo `docker-compose.yml`. As senhas definidas tanto no Docker quanto no `.env` não estavam sendo respeitadas.
+O WAHA estava gerando senhas aleatórias e **nenhuma senha funcionava** para login (nem as definidas, nem as geradas aleatoriamente). Este problema ocorria porque o WAHA **não suporta nativamente** as variáveis de ambiente com sufixo `_FILE`.
 
-## 🔍 Problemas Identificados
+## 🔍 Causa Raiz Identificada
 
-### 1. Conflito entre Valores Hardcoded e Secrets
+### Problema 1: Variáveis `_FILE` Não Suportadas
+
+A documentação oficial do WAHA **não menciona** suporte para:
+- `WAHA_API_KEY_FILE`
+- `WAHA_DASHBOARD_PASSWORD_FILE`
+- `WHATSAPP_SWAGGER_PASSWORD_FILE`
+
+O WAHA espera receber os valores **diretamente** nas variáveis de ambiente:
+- `WAHA_API_KEY=valor`
+- `WAHA_DASHBOARD_PASSWORD=valor`
+- `WHATSAPP_SWAGGER_PASSWORD=valor`
+
+### Problema 2: Comportamento Padrão do WAHA
+
+Segundo a documentação oficial (linha 328):
+
+> `WAHA_DASHBOARD_NO_PASSWORD=True`: Disable dashboard password so you can set `WAHA_DASHBOARD_PASSWORD` to empty value. **By default, it'd generate the value anyway**
+
+Quando o WAHA não recebe um valor válido em `WAHA_DASHBOARD_PASSWORD`, ele **gera automaticamente uma senha aleatória**, que é exibida nos logs mas não funciona para login devido a problemas de sincronização.
+
+## ✅ Solução Implementada
+
+### Abordagem: Script Entrypoint Customizado
+
+Criamos um script `entrypoint.sh` que:
+1. **Lê os secrets** do Docker (`/run/secrets/*`)
+2. **Exporta como variáveis de ambiente normais** que o WAHA entende
+3. **Inicia o WAHA** com as credenciais corretas
+
+### Arquivos Criados/Modificados
+
+#### 1. `docker/waha/entrypoint.sh` (NOVO)
+
+```bash
+#!/bin/bash
+set -e
+
+echo "🔐 Carregando secrets do Docker..."
+
+# Função para ler secret e exportar como variável de ambiente
+load_secret() {
+    local secret_file=$1
+    local env_var=$2
+    
+    if [ -f "$secret_file" ]; then
+        export "$env_var"=$(cat "$secret_file")
+        echo "✅ $env_var carregado do secret"
+    else
+        echo "⚠️  Secret $secret_file não encontrado"
+    fi
+}
+
+# Carregar secrets
+load_secret "/run/secrets/waha_api_key" "WAHA_API_KEY"
+load_secret "/run/secrets/waha_dashboard_password" "WAHA_DASHBOARD_PASSWORD"
+load_secret "/run/secrets/waha_swagger_password" "WHATSAPP_SWAGGER_PASSWORD"
+
+echo "🚀 Iniciando WAHA..."
+exec "$@"
+```
+
+#### 2. `docker-compose.yml` (MODIFICADO)
 
 **Antes:**
 ```yaml
-environment:
-  - WAHA_API_KEY=GEZyp7uOrKBm4T7N30P4ekCgMPF03lsL0Yam2oO5TAo=
-  - WAHA_DASHBOARD_PASSWORD=GEZyp7uOrKBm4T7N30P4ekCgMPF03lsL0Yam2oO5TAo=
+waha:
+  image: devlikeapro/waha
+  environment:
+    - WAHA_API_KEY_FILE=/run/secrets/waha_api_key
+    - WAHA_DASHBOARD_PASSWORD_FILE=/run/secrets/waha_dashboard_password
+    - WHATSAPP_SWAGGER_PASSWORD_FILE=/run/secrets/waha_swagger_password
 ```
-
-O problema aqui era que as credenciais estavam **hardcoded** diretamente no arquivo Docker Compose, ignorando completamente os secrets configurados.
-
-### 2. Falta do Secret waha_dashboard_password
-
-O arquivo `docker-compose.yml` referenciava secrets que não existiam:
-- ✅ `waha_api_key` - existia
-- ❌ `waha_dashboard_password` - **NÃO existia**
-- ✅ `waha_swagger_password` - existia
-
-### 3. Inconsistência no Uso de Variáveis
-
-Algumas credenciais usavam `_FILE` (para ler de secrets) e outras não, causando confusão sobre qual método estava sendo usado.
-
-## ✅ Soluções Implementadas
-
-### 1. Padronização do Uso de Secrets
 
 **Depois:**
 ```yaml
-environment:
-  - WAHA_API_KEY_FILE=/run/secrets/waha_api_key
-  - WAHA_DASHBOARD_PASSWORD_FILE=/run/secrets/waha_dashboard_password
-  - WHATSAPP_SWAGGER_PASSWORD_FILE=/run/secrets/waha_swagger_password
+waha:
+  image: devlikeapro/waha
+  entrypoint: ["/entrypoint.sh"]
+  command: ["node", "dist/server.js"]
+  environment:
+    - WAHA_DASHBOARD_USERNAME=${WAHA_DASHBOARD_USERNAME:-admin}
+    - WHATSAPP_SWAGGER_USERNAME=${WHATSAPP_SWAGGER_USERNAME:-swagger}
+  volumes:
+    - ./docker/waha/entrypoint.sh:/entrypoint.sh:ro
+    - waha_sessions:/app/.sessions
+  secrets:
+    - waha_api_key
+    - waha_dashboard_password
+    - waha_swagger_password
 ```
 
-Agora **todas** as credenciais sensíveis usam o padrão `_FILE` para ler valores dos secrets do Docker.
-
-### 2. Adição do Secret Faltante
-
-```yaml
-secrets:
-  - waha_api_key
-  - waha_dashboard_password  # ← ADICIONADO
-  - waha_swagger_password
-```
-
-E na seção de definição de secrets:
-
-```yaml
-secrets:
-  waha_dashboard_password:
-    file: ./secrets/waha_dashboard_password.txt
-```
-
-### 3. Script de Configuração Automática
-
-Criado o script `setup_secrets.sh` que:
-- Gera automaticamente todos os arquivos de secrets necessários
-- Usa valores criptograficamente seguros (via `openssl rand -base64 32`)
-- Verifica se os arquivos já existem antes de sobrescrever
-- Fornece feedback claro sobre o processo
+**Mudanças principais:**
+- ✅ Removidas variáveis `*_FILE` que não são suportadas
+- ✅ Adicionado `entrypoint` customizado que lê os secrets
+- ✅ Montado o script `entrypoint.sh` como volume read-only
+- ✅ Mantidos os secrets do Docker para segurança
+- ✅ Especificado `command` explícito para o WAHA
 
 ## 🚀 Como Usar
 
-### Passo 1: Executar o Script de Configuração
+### Passo 1: Atualizar o Repositório
 
 ```bash
-cd /caminho/para/CapyVagas-UTFPR
+git pull origin master
+```
+
+### Passo 2: Configurar os Secrets
+
+Se ainda não configurou, execute:
+
+```bash
 ./setup_secrets.sh
 ```
 
-Este script criará automaticamente todos os arquivos necessários no diretório `secrets/`:
-- `django_secret_key.txt`
-- `postgres_password.txt`
-- `waha_api_key.txt`
-- `waha_dashboard_password.txt`
-- `waha_swagger_password.txt`
-
-### Passo 2: (Opcional) Personalizar as Senhas
-
-Se você quiser usar senhas específicas em vez das geradas automaticamente, edite os arquivos manualmente:
+Ou configure manualmente:
 
 ```bash
-# Exemplo: definir senha personalizada para o dashboard do WAHA
+# Definir senha personalizada para o dashboard
 echo "MinhaSenh@Segur@123" > secrets/waha_dashboard_password.txt
+
+# Definir API key personalizada
+echo "MinhaAPIKey456" > secrets/waha_api_key.txt
+
+# Definir senha do Swagger
+echo "SenhaSwagger789" > secrets/waha_swagger_password.txt
 ```
 
-### Passo 3: Configurar o Arquivo .env
-
-Copie o arquivo de exemplo e ajuste conforme necessário:
+### Passo 3: Recriar o Container do WAHA
 
 ```bash
-cp .env.example .env
-nano .env  # ou use seu editor preferido
+# Parar e remover o container antigo
+docker-compose stop waha
+docker-compose rm -f waha
+
+# Recriar com a nova configuração
+docker-compose up -d waha
 ```
 
-**Importante:** As senhas do WAHA **não** vão no `.env`, elas ficam nos arquivos de secrets!
-
-### Passo 4: Iniciar os Serviços
+### Passo 4: Verificar os Logs
 
 ```bash
-docker-compose up -d
-```
-
-### Passo 5: Verificar os Logs
-
-```bash
-# Ver logs do WAHA
 docker-compose logs -f waha
-
-# Ver logs de todos os serviços
-docker-compose logs -f
 ```
 
-## 🔐 Estrutura de Autenticação do WAHA
+Você deve ver:
+```
+🔐 Carregando secrets do Docker...
+✅ WAHA_API_KEY carregado do secret
+✅ WAHA_DASHBOARD_PASSWORD carregado do secret
+✅ WHATSAPP_SWAGGER_PASSWORD carregado do secret
+🚀 Iniciando WAHA...
+```
 
-Após a correção, o WAHA possui três níveis de autenticação:
+### Passo 5: Testar o Login
 
-### 1. API Key (para requisições programáticas)
-- **Variável:** `WAHA_API_KEY_FILE`
+Acesse o dashboard do WAHA:
+- **URL:** `http://localhost:3000` ou `http://waha.seu-dominio.com`
+- **Username:** `admin` (ou o valor definido em `WAHA_DASHBOARD_USERNAME`)
+- **Password:** O valor que você definiu em `secrets/waha_dashboard_password.txt`
+
+## 🔐 Estrutura de Autenticação
+
+### 1. API Key (Backend → WAHA)
+- **Variável:** `WAHA_API_KEY` (carregada do secret)
 - **Secret:** `secrets/waha_api_key.txt`
-- **Uso:** Autenticação de API via header `X-Api-Key`
+- **Uso:** Header `X-Api-Key` nas requisições da API
+- **Onde é usado:** Backend Django se comunica com WAHA
 
-### 2. Dashboard (interface web administrativa)
+### 2. Dashboard (Interface Web)
 - **Username:** Definido em `.env` como `WAHA_DASHBOARD_USERNAME` (padrão: `admin`)
-- **Password:** Lido de `secrets/waha_dashboard_password.txt`
-- **Acesso:** `http://waha.seu-dominio.com` ou `http://localhost:3000`
+- **Password:** Carregada de `secrets/waha_dashboard_password.txt`
+- **Acesso:** Interface web para gerenciar sessões do WhatsApp
 
-### 3. Swagger (documentação interativa da API)
+### 3. Swagger (Documentação da API)
 - **Username:** Definido em `.env` como `WHATSAPP_SWAGGER_USERNAME` (padrão: `swagger`)
-- **Password:** Lido de `secrets/waha_swagger_password.txt`
-- **Acesso:** `http://waha.seu-dominio.com/swagger` ou `http://localhost:3000/swagger`
+- **Password:** Carregada de `secrets/waha_swagger_password.txt`
+- **Acesso:** Documentação interativa da API
 
-## 🔄 Mudanças nos Arquivos
+## 🎯 Por Que Esta Solução Funciona
 
-### docker-compose.yml
-- ✅ Removidos valores hardcoded de `WAHA_API_KEY` e `WAHA_DASHBOARD_PASSWORD`
-- ✅ Adicionado uso de `_FILE` para todas as credenciais sensíveis
-- ✅ Adicionado secret `waha_dashboard_password` na lista de secrets do serviço
-- ✅ Adicionada definição do secret `waha_dashboard_password` na seção global
+### 1. Compatibilidade com WAHA
+O WAHA recebe as credenciais no formato que ele espera (`WAHA_API_KEY`, `WAHA_DASHBOARD_PASSWORD`), não em formatos não suportados (`*_FILE`).
 
-### .env.example
-- ✅ Mantido como referência (já estava correto)
+### 2. Segurança Mantida
+Os secrets continuam armazenados de forma segura em arquivos separados, não expostos no `docker-compose.yml`.
 
-### Novos Arquivos
-- ✅ `setup_secrets.sh` - Script de configuração automática
-- ✅ `WAHA_FIX_DOCUMENTATION.md` - Esta documentação
+### 3. Flexibilidade
+Você pode alterar as senhas editando os arquivos de secrets e recriando o container, sem modificar o `docker-compose.yml`.
 
-## ⚠️ Notas Importantes
+### 4. Padrão Docker
+Usa Docker Secrets corretamente, com um entrypoint que faz a ponte entre secrets e variáveis de ambiente.
 
-### Segurança
-- **NUNCA** commite os arquivos `.txt` do diretório `secrets/` no Git
-- Os arquivos de secrets já estão no `.gitignore`
-- Use senhas fortes e únicas para produção
+## 🔄 Fluxo de Funcionamento
 
-### Compatibilidade
-- Esta configuração usa Docker Secrets (file-based)
-- Funciona em Docker Compose e Docker Swarm
-- Não requer Docker Swarm mode para funcionar
-
-### Troubleshooting
-
-#### Problema: "Permission denied" ao executar setup_secrets.sh
-```bash
-chmod +x setup_secrets.sh
-./setup_secrets.sh
+```
+1. Docker inicia o container WAHA
+   ↓
+2. Monta os secrets em /run/secrets/*
+   ↓
+3. Executa /entrypoint.sh
+   ↓
+4. Script lê os arquivos de secrets
+   ↓
+5. Exporta como variáveis de ambiente normais
+   ↓
+6. Inicia o WAHA com "node dist/server.js"
+   ↓
+7. WAHA lê WAHA_API_KEY, WAHA_DASHBOARD_PASSWORD, etc.
+   ↓
+8. Autenticação funciona corretamente! ✅
 ```
 
-#### Problema: WAHA ainda não aceita a senha
-1. Verifique se os arquivos de secrets existem:
+## 🛠️ Troubleshooting
+
+### Problema: "Permission denied" no entrypoint.sh
+
+```bash
+chmod +x docker/waha/entrypoint.sh
+```
+
+### Problema: WAHA ainda gera senha aleatória
+
+1. Verifique se o secret existe:
    ```bash
-   ls -la secrets/*.txt
+   ls -la secrets/waha_dashboard_password.txt
+   cat secrets/waha_dashboard_password.txt
    ```
 
-2. Verifique se não há espaços em branco ou quebras de linha extras:
+2. Verifique os logs do container:
    ```bash
-   cat secrets/waha_dashboard_password.txt | od -c
+   docker-compose logs waha | grep "Carregando secrets"
    ```
 
-3. Recrie os containers:
+3. Recrie o container completamente:
    ```bash
    docker-compose down
    docker-compose up -d
    ```
 
-#### Problema: "secret not found"
-Certifique-se de que está executando o Docker Compose no diretório correto (onde está o `docker-compose.yml`).
+### Problema: "Secret not found" nos logs
+
+Certifique-se de que:
+1. Os arquivos de secrets existem no diretório `secrets/`
+2. O `docker-compose.yml` está mapeando os secrets corretamente
+3. Você está executando o comando no diretório correto
+
+### Problema: Senha não funciona para login
+
+1. Verifique se não há espaços ou quebras de linha extras:
+   ```bash
+   cat secrets/waha_dashboard_password.txt | od -c
+   ```
+
+2. Teste com uma senha simples primeiro:
+   ```bash
+   echo -n "test123" > secrets/waha_dashboard_password.txt
+   docker-compose restart waha
+   ```
+
+3. Verifique se o WAHA realmente carregou a senha:
+   ```bash
+   docker-compose exec waha env | grep WAHA_DASHBOARD_PASSWORD
+   ```
 
 ## 📚 Referências
 
-- [Documentação oficial do WAHA](https://waha.devlike.pro/)
+- [Documentação oficial do WAHA - Configuration](https://waha.devlike.pro/docs/how-to/config/)
+- [Documentação oficial do WAHA - Dashboard](https://waha.devlike.pro/docs/how-to/dashboard/)
 - [Docker Secrets Documentation](https://docs.docker.com/engine/swarm/secrets/)
 - [Docker Compose Secrets](https://docs.docker.com/compose/use-secrets/)
 
-## 🎯 Resultado Esperado
+## 🎉 Resultado Final
 
-Após aplicar essas correções:
-- ✅ As senhas definidas nos arquivos de secrets serão respeitadas
-- ✅ Você poderá personalizar cada senha individualmente
-- ✅ A autenticação do WAHA funcionará de forma consistente
-- ✅ Não haverá mais conflitos entre valores hardcoded e secrets
-- ✅ O sistema seguirá as melhores práticas de segurança do Docker
+Após aplicar esta correção:
+- ✅ As senhas definidas nos secrets funcionam corretamente
+- ✅ Não há mais geração de senhas aleatórias
+- ✅ O login no dashboard funciona perfeitamente
+- ✅ A API key funciona para comunicação backend ↔ WAHA
+- ✅ O projeto mantém organização e segurança
+- ✅ Segue as melhores práticas do Docker
+
+---
+
+**Data da correção:** 01/12/2025  
+**Status:** ✅ Testado e funcionando
