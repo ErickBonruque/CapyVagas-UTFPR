@@ -7,13 +7,11 @@
 **Credenciais (Configuradas no .env):**
 ```
 Usuário: admin
-Senha: waha_strong_password_123!
+Senha: changeme
 ```
 
 > **Importante:** Estas credenciais são definidas no arquivo `.env` e são carregadas automaticamente.  
 > Você pode visualizá-las e alterá-las em: http://localhost:8000/dashboard/bot/configuration/
-
-Estas credenciais são configuráveis na página de **Configuração WAHA** do próprio dashboard.
 
 ---
 
@@ -24,7 +22,7 @@ Estas credenciais são configuráveis na página de **Configuração WAHA** do p
 **Credenciais:**
 ```
 Usuário: admin
-Senha: waha_strong_password_123!
+Senha: changeme
 ```
 
 Estas credenciais também são configuráveis via dashboard ou podem ser alteradas pelo terminal:
@@ -39,9 +37,21 @@ docker-compose run --rm backend python manage.py changepassword admin
 **URL de Acesso:** http://localhost:3000/dashboard/
 
 **Credenciais:**
-- Configuradas através do arquivo `.env`
-- API Key: `waha_secret_key`
-- Session: `default`
+```
+Usuário: admin
+Senha: admin123
+```
+
+**API Key para comunicação:**
+```
+Chave: capyvagas2024
+Uso: Header "X-Api-Key: capyvagas2024"
+```
+
+**Swagger Documentation:**
+- URL: http://localhost:3000/swagger
+- Usuário: swagger
+- Senha: admin123
 
 ---
 
@@ -61,7 +71,16 @@ DJANGO_ADMIN_PASSWORD=sua_senha_admin
 
 Após alterar, execute:
 ```bash
-make restart
+docker-compose restart
+```
+
+### 3. Credenciais WAHA
+As credenciais do WAHA estão configuradas no docker-compose.yml:
+```yaml
+environment:
+  - WAHA_DASHBOARD_USERNAME=admin
+  - WAHA_DASHBOARD_PASSWORD=admin123
+  - WAHA_API_KEY=capyvagas2024
 ```
 
 ---
@@ -90,24 +109,40 @@ curl http://localhost:8000/api/
 
 ### Verificar se o WAHA está rodando:
 ```bash
-curl http://localhost:3000/
+curl http://localhost:3000/dashboard/
 ```
 
-### Testar autenticação no Django Admin:
+### Testar autenticação no WAHA:
 ```bash
-curl -X POST http://localhost:8000/admin/login/ \
-  -d "username=admin&password=waha_strong_password_123!"
+curl -u admin:admin123 http://localhost:3000/dashboard/
 ```
+
+### Testar API Key do WAHA:
+```bash
+curl -H "X-Api-Key: capyvagas2024" http://localhost:3000/api/sessions
+```
+
+---
+
+## Conectando o WhatsApp
+
+1. Acesse http://localhost:3000/dashboard/
+2. Faça login com admin/admin123
+3. Clique em "Start Session" ou escaneie o QR Code
+4. Pronto! O WhatsApp estará conectado ao CapyVagas
 
 ---
 
 ## Problemas Comuns
 
-### "Credenciais inválidas" no Dashboard
-- Verifique se o arquivo `.env` está correto
-- Execute `make restart` para recriar os containers
-- Acesse a página de Configuração WAHA para ver as credenciais atuais
+### "Credenciais inválidas" no Dashboard WAHA
+- Use a URL correta: http://localhost:3000/dashboard/ (não esqueça da barra no final)
+- Verifique as credenciais: admin/admin123
 
 ### "Não consigo acessar o WAHA"
 - Verifique se o container WAHA está rodando: `docker-compose ps`
-- O link clicável no dashboard aponta para: http://localhost:3000/dashboard/
+- A URL correta é http://localhost:3000/dashboard/
+
+### "API não responde"
+- Verifique se a API key está correta: capyvagas2024
+- Use o header: `X-Api-Key: capyvagas2024`
